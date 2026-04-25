@@ -3,7 +3,6 @@
 负责基于用户需求和历史偏好，生成完整的活动方案。
 """
 from langchain_core.prompts import PromptTemplate
-from langchain_ollama import OllamaLLM
 import json
 import uuid
 from config.settings import settings
@@ -13,8 +12,16 @@ class PlanningAgent:
     """规划Agent"""
     
     def __init__(self):
-        self.llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+        self._llm = None
         self.map_tool = MapTool()
+    
+    @property
+    def llm(self):
+        """懒加载LLM模型"""
+        if self._llm is None:
+            from langchain_ollama import OllamaLLM
+            self._llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+        return self._llm
     
     def generate_plan(self, parsed_input: dict, user_preferences: dict) -> dict:
         """生成活动计划"""

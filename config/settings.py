@@ -36,10 +36,10 @@ class Settings(BaseSettings):
     
     # 日志配置
     log_level: str = "INFO"
-    log_file: str = "app.log"
+    log_file: str = "logs/app.log"
     
     # 业务配置
-    default_budget_range: tuple = (200, 500)
+    default_budget_range: list = [200, 500]
     default_planning_duration: int = 3600
     max_plan_activities: int = 10
     

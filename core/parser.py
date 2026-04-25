@@ -3,7 +3,6 @@
 负责解析用户自然语言指令，提取关键实体和意图。
 """
 from langchain_core.prompts import PromptTemplate
-from langchain_ollama import OllamaLLM
 import json
 from config.settings import settings
 
@@ -11,7 +10,15 @@ class InputParser:
     """用户输入解析器"""
     
     def __init__(self):
-        self.llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+        self._llm = None
+    
+    @property
+    def llm(self):
+        """懒加载LLM模型"""
+        if self._llm is None:
+            from langchain_ollama import OllamaLLM
+            self._llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+        return self._llm
     
     def parse(self, user_input: str) -> dict:
         """解析用户输入，提取关键实体"""

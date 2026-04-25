@@ -2,6 +2,10 @@
   <div class="app-container">
     <el-header>
       <h1>Local Activity Agent</h1>
+      <div class="header-weather" v-if="currentWeather">
+        <el-badge :value="currentWeather.temperature + '°C'" class="badge" />
+        <span>{{ currentWeather.description }}</span>
+      </div>
     </el-header>
     <el-main>
       <!-- 双栏布局 -->
@@ -11,11 +15,37 @@
           <div class="map-container">
             <div id="map" class="map"></div>
             <div class="map-controls">
-              <el-button size="small" @click="centerMap">定位</el-button>
+              <el-button size="small" @click="centerMap" type="primary">定位</el-button>
               <el-button size="small" @click="zoomIn">放大</el-button>
               <el-button size="small" @click="zoomOut">缩小</el-button>
             </div>
+            <div class="location-info" v-if="currentLocation">
+              <i class="el-icon-map-marker"></i>
+              <span>{{ currentLocation.address }}</span>
+            </div>
           </div>
+          
+          <!-- 当前天气卡片 -->
+          <div v-if="currentWeather" class="weather-card">
+            <el-card>
+              <template #header>
+                <span>当前天气</span>
+              </template>
+              <div class="weather-content">
+                <div class="weather-icon">{{ getWeatherIcon(currentWeather.description) }}</div>
+                <div class="weather-info">
+                  <h3>{{ currentWeather.city }}</h3>
+                  <p class="weather-temp">{{ currentWeather.temperature }}°C</p>
+                  <p class="weather-desc">{{ currentWeather.description }}</p>
+                  <div class="weather-details">
+                    <span>湿度: {{ currentWeather.humidity }}%</span>
+                    <span>风速: {{ currentWeather.wind_speed }} m/s</span>
+                  </div>
+                </div>
+              </div>
+            </el-card>
+          </div>
+          
           <div v-if="plan" class="route-info">
             <h4>路线信息</h4>
             <el-divider></el-divider>
@@ -198,6 +228,7 @@
                 </div>
               </template>
               <p>请输入活动需求并点击生成计划</p>
+              <p class="hint">系统已自动定位到您的当前位置</p>
             </el-card>
           </div>
         </div>
@@ -207,8 +238,8 @@
 </template>
 
 <script>
-import { ref, onMounted, watch } from 'vue'
-import { generatePlan, confirmPlan } from './api/index.js'
+import { ref, onMounted } from 'vue'
+import { generatePlan, confirmPlan, getWeather, getUserLocation, getMapConfig } from './api/index.js'
 
 export default {
   name: 'App',
@@ -225,8 +256,286 @@ export default {
     const isStreaming = ref(false)
     const currentStreamText = ref('')
     const flippedCards = ref([])
+    
+    // 地图相关
     let map = null
     let markers = []
+    const currentLocation = ref({
+      lat: 32.0603,
+      lng: 118.7969,
+      address: '南京市'
+    })
+    
+    // 天气相关
+    const currentWeather = ref(null)
+
+    // 获取天气图标
+    const getWeatherIcon = (desc) => {
+      if (!desc) return '☀️'
+      if (desc.includes('晴')) return '☀️'
+      if (desc.includes('云')) return '☁️'
+      if (desc.includes('雨')) return '🌧️'
+      if (desc.includes('雪')) return '❄️'
+      return '🌤️'
+    }
+
+    // 获取用户当前位置（通过后端代理，保护隐私）
+    const fetchUserLocation = async () => {
+      try {
+        const response = await getUserLocation()
+        if (response.success) {
+          return {
+            lat: response.lat,
+            lng: response.lng,
+            city: response.city,
+            address: response.address
+          }
+        }
+      } catch (error) {
+        console.warn('通过后端获取位置失败:', error)
+      }
+      // 使用默认位置（南京）
+      return {
+        lat: 32.0603,
+        lng: 118.7969,
+        city: '南京市',
+        address: '南京市'
+      }
+    }
+
+    // 获取当前天气
+    const fetchWeather = async (city) => {
+      try {
+        const response = await getWeather(city)
+        if (response.success) {
+          currentWeather.value = response
+        }
+      } catch (error) {
+        console.error('获取天气失败:', error)
+      }
+    }
+
+    // 动态加载地图脚本
+    const loadMapScript = async () => {
+      return new Promise(async (resolve, reject) => {
+        try {
+          // 从后端获取地图配置
+          const config = await getMapConfig()
+          if (!config.success) {
+            throw new Error('获取地图配置失败')
+          }
+          
+          const apiKey = config.map_api_key
+          const mapUrl = `${config.map_api_url}?v=1.4.15&key=${apiKey}`
+          
+          // 创建script标签加载地图API
+          const script = document.createElement('script')
+          script.type = 'text/javascript'
+          script.src = mapUrl
+          script.onload = () => {
+            console.log('地图API加载成功')
+            resolve()
+          }
+          script.onerror = () => {
+            console.error('地图API加载失败')
+            reject(new Error('地图API加载失败'))
+          }
+          
+          document.head.appendChild(script)
+        } catch (error) {
+          console.error('加载地图脚本失败:', error)
+          reject(error)
+        }
+      })
+    }
+
+    // 等待AMap加载完成
+    const waitForAMap = () => {
+      return new Promise((resolve) => {
+        const checkAMap = () => {
+          if (window.AMap && window.AMap.Map) {
+            resolve()
+          } else {
+            setTimeout(checkAMap, 100)
+          }
+        }
+        checkAMap()
+      })
+    }
+
+    // 逆地理编码获取地址
+    const reverseGeocode = async (lat, lng) => {
+      await waitForAMap()
+      return new Promise((resolve) => {
+        try {
+          const geocoder = new window.AMap.Geocoder({
+            radius: 1000,
+            extensions: 'all'
+          })
+          geocoder.getAddress([lng, lat], (status, result) => {
+            if (status === 'complete' && result.regeocode) {
+              const address = result.regeocode.formattedAddress
+              resolve(address)
+            } else {
+              resolve('南京市')
+            }
+          })
+        } catch (error) {
+          console.error('逆地理编码失败:', error)
+          resolve('南京市')
+        }
+      })
+    }
+
+    // 初始化地图
+    const initMap = async (lat, lng) => {
+      await waitForAMap()
+      
+      try {
+        const mapContainer = document.getElementById('map')
+        if (!mapContainer) return
+        
+        // 创建地图实例
+        map = new window.AMap.Map('map', {
+          center: [lng || currentLocation.value.lng, lat || currentLocation.value.lat],
+          zoom: 13,
+          resizeEnable: true
+        })
+        
+        // 添加比例尺控件
+        map.addControl(new window.AMap.Scale())
+        
+        // 添加缩放控件
+        map.addControl(new window.AMap.Zoom())
+        
+        // 添加定位控件
+        map.addControl(new window.AMap.Geolocation({
+          enableHighAccuracy: true,
+          timeout: 10000,
+          buttonPosition: 'RB',
+          buttonOffset: new window.AMap.Pixel(10, 20)
+        }))
+        
+        // 在当前位置添加标记
+        addMarker(lat || currentLocation.value.lat, lng || currentLocation.value.lng, '您的位置')
+        
+        // 添加点击事件
+        map.on('click', (e) => {
+          console.log('地图点击:', e.lnglat.getLng(), e.lnglat.getLat())
+        })
+        
+        console.log('地图初始化成功')
+      } catch (error) {
+        console.error('地图初始化失败:', error)
+      }
+    }
+
+    // 添加标记
+    const addMarker = (lat, lng, title) => {
+      if (!map) return
+      
+      const marker = new window.AMap.Marker({
+        position: [lng, lat],
+        title: title,
+        icon: new window.AMap.Icon({
+          image: 'https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png',
+          size: new window.AMap.Size(32, 32),
+          imageSize: new window.AMap.Size(32, 32)
+        })
+      })
+      
+      map.add(marker)
+      markers.push(marker)
+      
+      // 添加信息窗口
+      marker.on('click', () => {
+        const infoWindow = new window.AMap.InfoWindow({
+          content: `<div style="padding: 10px;">${title}</div>`,
+          offset: new window.AMap.Pixel(0, -30)
+        })
+        infoWindow.open(map, [lng, lat])
+      })
+    }
+
+    // 标记地点
+    const markLocations = () => {
+      if (!map || !plan.value || !plan.value.activities) return
+      
+      // 清除之前的标记（保留当前位置标记）
+      if (markers.length > 1) {
+        const currentMarker = markers.shift()
+        map.remove(markers)
+        markers = [currentMarker]
+      }
+      
+      // 为每个活动地点添加标记
+      plan.value.activities.forEach((activity, index) => {
+        if (activity.location) {
+          // 使用地理编码获取坐标
+          if (window.AMap) {
+            const geocoder = new window.AMap.Geocoder()
+            geocoder.getLocation(activity.location, (status, result) => {
+              if (status === 'complete' && result.geocodes.length > 0) {
+                const location = result.geocodes[0].location
+                addMarker(location.lat, location.lng, activity.name)
+              }
+            })
+          }
+        }
+      })
+    }
+
+    // 绘制路线
+    const drawRoute = () => {
+      if (!map || !plan.value || !plan.value.activities) return
+      
+      // 简单实现：绘制活动地点连线
+      if (plan.value.activities.length >= 2) {
+        const points = []
+        
+        plan.value.activities.forEach((activity) => {
+          if (activity.location) {
+            // 模拟坐标
+            const coords = activity.location.includes('紫金山') 
+              ? [118.8533, 32.0705]
+              : [118.7969, 32.0603]
+            points.push(coords)
+          }
+        })
+        
+        if (points.length >= 2) {
+          const polyline = new window.AMap.Polyline({
+            path: points,
+            strokeColor: '#409EFF',
+            strokeWeight: 4,
+            strokeOpacity: 0.8
+          })
+          map.add(polyline)
+        }
+      }
+    }
+
+    // 地图控制
+    const centerMap = () => {
+      if (map) {
+        map.setCenter([currentLocation.value.lng, currentLocation.value.lat])
+        map.setZoom(13)
+      }
+    }
+
+    const zoomIn = () => {
+      if (map) {
+        const currentZoom = map.getZoom()
+        map.setZoom(currentZoom + 1)
+      }
+    }
+
+    const zoomOut = () => {
+      if (map) {
+        const currentZoom = map.getZoom()
+        map.setZoom(currentZoom - 1)
+      }
+    }
 
     // 生成计划
     const handleGeneratePlan = async () => {
@@ -241,11 +550,8 @@ export default {
         simulateStreaming()
         
         const response = await generatePlan(userInput.value)
-        plan.value = response.plan
+        plan.value = response
         itinerary.value = null
-        
-        // 初始化地图
-        initMap()
         
         // 标记地点
         markLocations()
@@ -280,7 +586,7 @@ export default {
         } else {
           clearInterval(interval)
         }
-      }, 1000)
+      }, 800)
     }
 
     // 重新规划
@@ -293,9 +599,9 @@ export default {
       try {
         const response = await confirmPlan({
           user_id: userInput.value.user_id,
-          plan_id: plan.value.plan_id
+          plan_id: plan.value.plan_id || 'test_plan'
         })
-        itinerary.value = response.itinerary
+        itinerary.value = response
       } catch (error) {
         console.error('确认计划失败:', error)
       }
@@ -319,54 +625,47 @@ export default {
 
     // 导出行程单
     const exportItinerary = () => {
-      // 实现导出功能
       console.log('导出行程单')
     }
 
     // 分享行程单
     const shareItinerary = () => {
-      // 实现分享功能
       console.log('分享行程单')
     }
 
-    // 初始化地图
-    const initMap = () => {
-      // 这里集成高德地图API
-      // 由于是模拟环境，我们只创建一个占位符
-      console.log('初始化地图')
-    }
-
-    // 标记地点
-    const markLocations = () => {
-      if (plan.value && plan.value.activities) {
-        console.log('标记地点:', plan.value.activities)
-      }
-    }
-
-    // 绘制路线
-    const drawRoute = () => {
-      if (plan.value && plan.value.activities) {
-        console.log('绘制路线:', plan.value.activities)
-      }
-    }
-
-    // 地图控制
-    const centerMap = () => {
-      console.log('定位地图')
-    }
-
-    const zoomIn = () => {
-      console.log('放大地图')
-    }
-
-    const zoomOut = () => {
-      console.log('缩小地图')
-    }
-
     // 组件挂载时初始化
-    onMounted(() => {
-      // 初始化地图
-      initMap()
+    onMounted(async () => {
+      try {
+        // 通过后端API获取用户位置（保护隐私）
+        const location = await fetchUserLocation()
+        currentLocation.value.lat = location.lat
+        currentLocation.value.lng = location.lng
+        currentLocation.value.address = location.address
+        
+        // 获取当前城市的天气
+        const city = location.city || '南京'
+        await fetchWeather(city)
+        
+        // 动态加载地图脚本（从后端获取配置，保护API key）
+        await loadMapScript()
+        
+        // 等待AMap对象加载完成
+        await waitForAMap()
+        
+        // 初始化地图
+        await initMap(location.lat, location.lng)
+      } catch (error) {
+        console.error('初始化失败:', error)
+        // 使用默认值
+        try {
+          await loadMapScript()
+          await waitForAMap()
+          initMap()
+        } catch (mapError) {
+          console.error('地图初始化失败:', mapError)
+        }
+        fetchWeather('南京')
+      }
     })
 
     return {
@@ -379,11 +678,14 @@ export default {
       isStreaming,
       currentStreamText,
       flippedCards,
+      currentLocation,
+      currentWeather,
       generatePlan: handleGeneratePlan,
       regeneratePlan,
       confirmPlan: handleConfirmPlan,
       flipCard,
       getActivityTime,
+      getWeatherIcon,
       exportItinerary,
       shareItinerary,
       centerMap,
@@ -406,6 +708,23 @@ export default {
   color: white;
   text-align: center;
   line-height: 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.header-weather {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.header-weather .badge {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 2px 8px;
 }
 
 .el-main {
@@ -450,11 +769,73 @@ export default {
   z-index: 100;
 }
 
+.location-info {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: 8px 15px;
+  border-radius: 20px;
+  font-size: 14px;
+  color: #333;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.location-info i {
+  color: #409EFF;
+}
+
 .route-info {
   background-color: white;
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* 天气卡片 */
+.weather-card {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.weather-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.weather-icon {
+  font-size: 64px;
+}
+
+.weather-info h3 {
+  margin: 0 0 10px 0;
+  color: #333;
+}
+
+.weather-temp {
+  font-size: 32px;
+  font-weight: bold;
+  color: #409EFF;
+  margin: 0 0 5px 0;
+}
+
+.weather-desc {
+  font-size: 16px;
+  color: #666;
+  margin: 0 0 10px 0;
+}
+
+.weather-details {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #999;
 }
 
 /* 右侧面板 */
@@ -593,6 +974,13 @@ export default {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+/* 提示信息 */
+.hint {
+  color: #999;
+  font-size: 14px;
+  margin-top: 10px;
 }
 
 /* 响应式设计 */
