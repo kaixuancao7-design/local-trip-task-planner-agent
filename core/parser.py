@@ -1,0 +1,58 @@
+"""感知层 - 用户输入解析器
+
+负责解析用户自然语言指令，提取关键实体和意图。
+"""
+from langchain_core.prompts import PromptTemplate
+from langchain_ollama import OllamaLLM
+import json
+from config.settings import settings
+
+class InputParser:
+    """用户输入解析器"""
+    
+    def __init__(self):
+        self.llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+    
+    def parse(self, user_input: str) -> dict:
+        """解析用户输入，提取关键实体"""
+        prompt = PromptTemplate(
+            input_variables=["user_input"],
+            template="""请从以下用户输入中提取关键实体，以JSON格式输出：
+            用户输入：{user_input}
+            输出格式：{{"地点": "", "活动": "", "餐饮": "", "关系": "", "时间": "", "预算": "", "人数": ""}}"""
+        )
+        
+        chain = prompt | self.llm
+        result = chain.invoke({"user_input": user_input})
+        
+        try:
+            parsed = json.loads(result)
+            return parsed
+        except json.JSONDecodeError:
+            return {
+                "地点": "",
+                "活动": "",
+                "餐饮": "",
+                "关系": "",
+                "时间": "",
+                "预算": "",
+                "人数": ""
+            }
+    
+    def extract_intent(self, user_input: str) -> str:
+        """提取用户意图"""
+        prompt = PromptTemplate(
+            input_variables=["user_input"],
+            template="""请分析用户输入的意图，返回以下之一：
+            - plan: 规划活动
+            - query: 查询信息
+            - confirm: 确认执行
+            - cancel: 取消计划
+            - update: 更新偏好
+            
+            用户输入：{user_input}"""
+        )
+        
+        chain = prompt | self.llm
+        result = chain.invoke({"user_input": user_input})
+        return result.strip().lower()
