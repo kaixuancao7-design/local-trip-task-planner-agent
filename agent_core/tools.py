@@ -1,10 +1,12 @@
 import requests
 import json
+import config
 
 class MapTool:
     def __init__(self):
         # 在实际应用中，这里应该配置真实的API密钥
-        self.api_key = "your_amap_api_key"
+        self.api_key = config.MAP_API_KEY
+        self.api_url = config.MAP_API_URL
     
     def get_route(self, origin, destination):
         """获取路线信息"""
@@ -48,7 +50,8 @@ class MapTool:
 class WeatherTool:
     def __init__(self):
         # 在实际应用中，这里应该配置真实的API密钥
-        self.api_key = "your_weather_api_key"
+        self.api_key = config.WEATHER_API_KEY
+        self.api_url = config.WEATHER_API_URL
     
     def get_weather(self, location, date):
         """获取天气信息"""

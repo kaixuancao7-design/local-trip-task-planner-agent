@@ -1,14 +1,14 @@
 from langchain_core.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
-from langchain.chains import LLMChain
 import json
+import config
 
 class PlanningAgent:
     def __init__(self, memory_manager, map_tool, weather_tool):
         self.memory_manager = memory_manager
         self.map_tool = map_tool
         self.weather_tool = weather_tool
-        self.llm = OllamaLLM(model="qwen2.5:7b")
+        self.llm = OllamaLLM(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
         
     def parse_input(self, user_input):
         """解析用户输入，提取关键实体"""
@@ -19,8 +19,9 @@ class PlanningAgent:
             输出格式：{{"地点": "", "活动": "", "餐饮": "", "关系": "", "时间": ""}}"""
         )
         
-        chain = LLMChain(llm=self.llm, prompt=prompt)
-        result = chain.run(user_input)
+        # 使用新的方式构建链
+        chain = prompt | self.llm
+        result = chain.invoke({"user_input": user_input})
         
         try:
             parsed = json.loads(result)
@@ -61,11 +62,12 @@ class PlanningAgent:
             - estimated_cost: 预估费用"""
         )
         
-        chain = LLMChain(llm=self.llm, prompt=prompt)
-        result = chain.run(
-            parsed_input=json.dumps(parsed_input, ensure_ascii=False),
-            user_preferences=json.dumps(user_preferences, ensure_ascii=False)
-        )
+        # 使用新的方式构建链
+        chain = prompt | self.llm
+        result = chain.invoke({
+            "parsed_input": json.dumps(parsed_input, ensure_ascii=False),
+            "user_preferences": json.dumps(user_preferences, ensure_ascii=False)
+        })
         
         try:
             plan = json.loads(result)

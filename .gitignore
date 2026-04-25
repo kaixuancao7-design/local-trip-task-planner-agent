@@ -1,0 +1,59 @@
+# 依赖包
+node_modules/
+pip-wheel-metadata/
+__pycache__/
+*.pyc
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 构建文件
+dist/
+build/
+*.egg-info/
+
+# 日志文件
+*.log
+app.log
+
+# 数据库文件
+chroma_db/
+*.db
+*.sqlite3
+
+# 测试文件
+coverage/
+.coverage
+.pytest_cache/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+tmp/
+temp/
+
+# 前端文件
+frontend/node_modules/
+frontend/dist/
+frontend/.vscode/
+
+# 后端文件
+agent_core/__pycache__/
+models/__pycache__/
+
+# 其他
+*.zip
+*.rar
+*.tar.gz
+*.tar.bz2

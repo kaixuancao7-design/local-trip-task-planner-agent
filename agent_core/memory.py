@@ -2,18 +2,19 @@ import chromadb
 import json
 import os
 from chromadb.config import Settings
+import config
 
 class MemoryManager:
     def __init__(self):
         # 初始化ChromaDB
         self.client = chromadb.Client(
             Settings(
-                persist_directory="./chroma_db",
+                persist_directory=config.CHROMA_DB_PATH,
                 anonymized_telemetry=False
             )
         )
         # 获取或创建集合
-        self.collection = self.client.get_or_create_collection(name="user_preferences")
+        self.collection = self.client.get_or_create_collection(name=config.CHROMA_COLLECTION_NAME)
     
     def get_user_preferences(self, user_id):
         """获取用户偏好"""

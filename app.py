@@ -5,17 +5,18 @@ import uvicorn
 from agent_core.planner import PlanningAgent
 from agent_core.memory import MemoryManager
 from agent_core.tools import MapTool, WeatherTool
+import config
 
 app = FastAPI(
-    title="Local Activity Agent",
+    title=config.APP_NAME,
     description="智能活动规划代理系统",
-    version="1.0.0"
+    version=config.APP_VERSION
 )
 
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该设置具体的前端域名
+    allow_origins=[config.FRONTEND_URL, "*"],  # 在生产环境中应该设置具体的前端域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -92,4 +93,4 @@ async def get_user_preferences(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=config.HOST, port=config.PORT)
