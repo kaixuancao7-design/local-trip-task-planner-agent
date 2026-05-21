@@ -6,7 +6,104 @@ const api = axios.create({
   timeout: 10000
 })
 
-// 生成计划
+// WebSocket连接管理
+let ws = null
+let wsCallbacks = {}
+
+// 初始化WebSocket连接
+export const initWebSocket = (onThinking, onComplete, onError) => {
+  // 保存回调函数
+  wsCallbacks = { onThinking, onComplete, onError }
+  
+  // 关闭现有连接
+  if (ws) {
+    ws.close()
+  }
+  
+  // 建立新连接
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/plan/ws`
+  
+  ws = new WebSocket(wsUrl)
+  
+  ws.onopen = () => {
+    console.log('WebSocket连接已建立')
+  }
+  
+  ws.onmessage = (event) => {
+    console.log('WebSocket收到原始消息:', event.data)
+    try {
+      const data = JSON.parse(event.data)
+      console.log('WebSocket解析后数据:', data)
+      
+      switch (data.type) {
+        case 'thinking':
+          console.log('调用thinking回调')
+          wsCallbacks.onThinking?.(data)
+          break
+        case 'complete':
+          console.log('调用complete回调')
+          wsCallbacks.onComplete?.(data)
+          break
+        case 'error':
+          console.log('调用error回调')
+          wsCallbacks.onError?.(data)
+          break
+        case 'cancelled':
+          console.log('任务已取消')
+          break
+        default:
+          console.warn('未知消息类型:', data.type)
+      }
+    } catch (error) {
+      console.error('解析WebSocket消息失败:', error, '原始数据:', event.data)
+    }
+  }
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket错误:', error)
+    wsCallbacks.onError?.({ message: '连接错误' })
+  }
+  
+  ws.onclose = (event) => {
+    console.log('WebSocket连接关闭:', event.code, event.reason)
+    // 自动重连
+    setTimeout(() => initWebSocket(wsCallbacks.onThinking, wsCallbacks.onComplete, wsCallbacks.onError), 3000)
+  }
+}
+
+// 通过WebSocket发送生成计划请求
+export const sendGeneratePlan = (user_id, input) => {
+  return new Promise((resolve, reject) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        action: 'generate_plan',
+        user_id,
+        input
+      }))
+      resolve()
+    } else {
+      reject(new Error('WebSocket未连接'))
+    }
+  })
+}
+
+// 取消任务
+export const cancelPlan = () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: 'cancel' }))
+  }
+}
+
+// 关闭WebSocket连接
+export const closeWebSocket = () => {
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+}
+
+// 生成计划（HTTP方式，作为备用）
 export const generatePlan = async (data) => {
   try {
     const response = await api.post('/v1/plan/generate', data)

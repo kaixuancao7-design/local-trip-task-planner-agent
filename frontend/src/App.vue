@@ -34,14 +34,10 @@
               <div class="weather-content">
                 <div class="weather-icon">{{ getWeatherIcon(currentWeather.description) }}</div>
                 <div class="weather-info">
-                  <h3>{{ currentWeather.city }}</h3>
-                  <p class="weather-temp">{{ currentWeather.temperature }}°C</p>
-                  <p class="weather-desc">{{ currentWeather.description }}</p>
-                  <div class="weather-details">
-                    <span>湿度: {{ currentWeather.humidity }}%</span>
-                    <span>风速: {{ currentWeather.wind_speed }} m/s</span>
-                  </div>
-                </div>
+                <h3>{{ currentWeather.city }}</h3>
+                <p class="weather-temp">{{ currentWeather.temperature }}°C</p>
+                <p class="weather-desc">{{ currentWeather.description }}</p>
+              </div>
               </div>
             </el-card>
           </div>
@@ -238,8 +234,8 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
-import { generatePlan, confirmPlan, getWeather, getUserLocation, getMapConfig } from './api/index.js'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { generatePlan, confirmPlan, getWeather, getUserLocation, getMapConfig, initWebSocket, sendGeneratePlan, closeWebSocket } from './api/index.js'
 
 export default {
   name: 'App',
@@ -537,56 +533,86 @@ export default {
       }
     }
 
-    // 生成计划
-    const handleGeneratePlan = async () => {
-      try {
-        loading.value = true
-        thinking.value = true
-        thinkingSteps.value = []
-        isStreaming.value = true
-        currentStreamText.value = ''
-        
-        // 模拟流式输出
-        simulateStreaming()
-        
-        const response = await generatePlan(userInput.value)
-        plan.value = response
-        itinerary.value = null
-        
-        // 标记地点
-        markLocations()
-        
-        // 绘制路线
-        drawRoute()
-      } catch (error) {
-        console.error('生成计划失败:', error)
-      } finally {
-        loading.value = false
-        thinking.value = false
-        isStreaming.value = false
+    // WebSocket回调：处理思考过程
+    const handleThinking = (data) => {
+      console.log('WebSocket收到思考消息:', data)
+      thinking.value = true
+      if (data.message) {
+        thinkingSteps.value.push(data.message)
       }
     }
-
-    // 模拟流式输出
-    const simulateStreaming = () => {
-      const steps = [
-        '正在解析用户输入...',
-        '正在提取关键实体...',
-        '正在检索用户偏好...',
-        '正在规划活动路线...',
-        '正在计算最佳时间安排...',
-        '正在生成详细计划...'
-      ]
+    
+    // WebSocket回调：处理完成结果
+    const handleComplete = (data) => {
+      console.log('WebSocket收到完成消息:', data)
       
-      let index = 0
-      const interval = setInterval(() => {
-        if (index < steps.length) {
-          thinkingSteps.value.push(steps[index])
-          index++
-        } else {
-          clearInterval(interval)
-        }
-      }, 800)
+      if (!data.success) {
+        console.error('生成计划失败:', data.message)
+        loading.value = false
+        thinking.value = false
+        return
+      }
+      
+      // 构建符合前端模板的数据结构
+      plan.value = {
+        plan_id: data.plan_id,
+        title: data.title,
+        schedule: data.schedule || [],
+        activities: data.activities || [],
+        restaurants: data.restaurants || [],
+        transportation: data.transportation,
+        estimated_cost: data.estimated_cost
+      }
+      
+      itinerary.value = null
+      loading.value = false
+      thinking.value = false
+      
+      console.log('计划数据已设置:', plan.value)
+      
+      // 标记地点
+      setTimeout(() => {
+        markLocations()
+        drawRoute()
+      }, 100)
+    }
+    
+    // WebSocket回调：处理错误
+    const handleError = (data) => {
+      console.error('生成计划失败:', data)
+      loading.value = false
+      thinking.value = false
+    }
+
+    // 生成计划（使用WebSocket）
+    const handleGeneratePlan = async () => {
+      if (!userInput.value.input.trim()) {
+        alert('请输入活动需求')
+        return
+      }
+      
+      loading.value = true
+      thinkingSteps.value = []
+      plan.value = null
+      
+      try {
+        await sendGeneratePlan(userInput.value.user_id, userInput.value.input)
+      } catch (error) {
+        console.error('发送请求失败:', error)
+        loading.value = false
+        // 回退到HTTP方式
+        await fallbackToHttp()
+      }
+    }
+    
+    // 回退到HTTP方式
+    const fallbackToHttp = async () => {
+      try {
+        const response = await generatePlan(userInput.value)
+        handleComplete(response)
+      } catch (error) {
+        handleError(error)
+      }
     }
 
     // 重新规划
@@ -636,6 +662,9 @@ export default {
     // 组件挂载时初始化
     onMounted(async () => {
       try {
+        // 初始化WebSocket连接
+        initWebSocket(handleThinking, handleComplete, handleError)
+        
         // 通过后端API获取用户位置（保护隐私）
         const location = await fetchUserLocation()
         currentLocation.value.lat = location.lat
@@ -666,6 +695,11 @@ export default {
         }
         fetchWeather('南京')
       }
+    })
+    
+    // 组件卸载时清理
+    onUnmounted(() => {
+      closeWebSocket()
     })
 
     return {
@@ -829,13 +863,6 @@ export default {
   font-size: 16px;
   color: #666;
   margin: 0 0 10px 0;
-}
-
-.weather-details {
-  display: flex;
-  gap: 20px;
-  font-size: 14px;
-  color: #999;
 }
 
 /* 右侧面板 */

@@ -26,17 +26,25 @@ class MapTool:
         Returns:
             路线信息字典
         """
-        # 如果没有配置真实API密钥，返回模拟数据
-        if not self.api_key or self.api_key == "your_amap_api_key_here":
-            return self._generate_mock_route(origin, destination)
-        
         try:
+            # 检查是否是地址格式，需要先转换为经纬度
+            origin_coords = origin
+            destination_coords = destination
+            
+            # 如果不是经纬度格式，调用geocode转换
+            if ',' not in origin:
+                geo_origin = self.geocode(origin, city)
+                origin_coords = geo_origin["location"]
+            
+            if ',' not in destination:
+                geo_dest = self.geocode(destination, city)
+                destination_coords = geo_dest["location"]
+            
             # 调用高德地图驾车路线API
             url = f"{self.base_url}/direction/driving"
             params = {
-                "origin": origin,
-                "destination": destination,
-                "city": city,
+                "origin": origin_coords,
+                "destination": destination_coords,
                 "key": self.api_key
             }
             response = requests.get(url, params=params)
@@ -48,15 +56,13 @@ class MapTool:
                     "distance": int(route.get("distance", 0)),
                     "duration": int(route.get("duration", 0)),
                     "travel_time": self._format_duration(int(route.get("duration", 0))),
-                    "steps": route.get("steps", []),
-                    "origin": origin,
-                    "destination": destination
+                    "distance_text": f"{route.get('distance', 0)}米",
+                    "steps": self._parse_route_steps(route.get("steps", []))
                 }
             else:
-                return self._generate_mock_route(origin, destination)
+                raise ValueError(f"地图API返回错误: {data.get('info', '未知错误')}")
         except Exception as e:
-            print(f"高德地图API调用失败: {e}")
-            return self._generate_mock_route(origin, destination)
+            raise RuntimeError(f"获取路线失败: {str(e)}")
     
     @log_performance("map.search_place")
     def search_place(self, keyword: str, city: str = "") -> list:
@@ -69,11 +75,7 @@ class MapTool:
         Returns:
             地点列表
         """
-        if not self.api_key or self.api_key == "your_amap_api_key_here":
-            return self._generate_mock_places(keyword)
-        
         try:
-            # 调用高德地图POI搜索API
             url = f"{self.base_url}/place/text"
             params = {
                 "keywords": keyword,
@@ -99,10 +101,9 @@ class MapTool:
                     })
                 return places
             else:
-                return self._generate_mock_places(keyword)
+                raise ValueError(f"地图API返回错误: {data.get('info', '未知错误')}")
         except Exception as e:
-            print(f"高德地图POI搜索失败: {e}")
-            return self._generate_mock_places(keyword)
+            raise RuntimeError(f"搜索地点失败: {str(e)}")
     
     @log_performance("map.geocode")
     def geocode(self, address: str, city: str = "") -> dict:
@@ -115,9 +116,6 @@ class MapTool:
         Returns:
             经纬度信息
         """
-        if not self.api_key or self.api_key == "your_amap_api_key_here":
-            return self._generate_mock_geocode(address)
-        
         try:
             url = f"{self.base_url}/geocode/geo"
             params = {
@@ -138,40 +136,11 @@ class MapTool:
                         "city": geocodes[0].get("city", ""),
                         "district": geocodes[0].get("district", "")
                     }
-            return self._generate_mock_geocode(address)
+            raise ValueError(f"地理编码失败: {data.get('info', '未找到地址')}")
         except Exception as e:
-            print(f"高德地图地理编码失败: {e}")
-            return self._generate_mock_geocode(address)
+            raise RuntimeError(f"地理编码失败: {str(e)}")
     
-    def _generate_mock_places(self, keyword: str) -> list:
-        """生成模拟地点数据"""
-        mock_places = [
-            {"name": f"{keyword}公园", "location": "32.0603,118.7969", "address": "南京市玄武区", "type": "景点", "typecode": "100000", "distance": 1000},
-            {"name": f"{keyword}美食城", "location": "32.0574,118.7917", "address": "南京市秦淮区", "type": "餐饮", "typecode": "050000", "distance": 2000},
-            {"name": f"{keyword}购物中心", "location": "32.0622,118.7895", "address": "南京市鼓楼区", "type": "购物", "typecode": "060000", "distance": 1500}
-        ]
-        return mock_places
-    
-    def _generate_mock_geocode(self, address: str) -> dict:
-        """生成模拟地理编码数据"""
-        return {
-            "formatted_address": address,
-            "location": "32.0603,118.7969",
-            "province": "江苏省",
-            "city": "南京市",
-            "district": "玄武区"
-        }
-    
-    def _generate_mock_route(self, origin: str, destination: str) -> dict:
-        """生成模拟路线数据"""
-        import random
-        travel_time_minutes = random.randint(20, 60)
-        return {
-            "distance": random.randint(5, 20),
-            "duration": travel_time_minutes * 60,
-            "travel_time": f"{travel_time_minutes}分钟",
-            "steps": []
-        }
+
     
     def _format_duration(self, seconds: int) -> str:
         """格式化时长"""
@@ -181,3 +150,15 @@ class MapTool:
         hours = minutes // 60
         minutes = minutes % 60
         return f"{hours}小时{minutes}分钟"
+    
+    def _parse_route_steps(self, steps: list) -> list:
+        """解析路线步骤"""
+        parsed_steps = []
+        for step in steps:
+            parsed_steps.append({
+                "instruction": step.get("instruction", ""),
+                "distance": step.get("distance", ""),
+                "duration": step.get("duration", ""),
+                "action": step.get("action", "")
+            })
+        return parsed_steps

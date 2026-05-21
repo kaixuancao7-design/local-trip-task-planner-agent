@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     
     # 天气API配置
     weather_api_key: str = "your_weather_api_key"
-    weather_api_url: str = "https://api.openweathermap.org/data/2.5"
+    weather_api_url: str = "https://api.seniverse.com/v3"
     
     # 前端配置
     frontend_url: str = "http://localhost:3000"

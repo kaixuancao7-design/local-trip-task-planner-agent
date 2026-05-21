@@ -5,7 +5,7 @@
 """
 import requests
 from config.settings import settings
-from config.logging_config import log_performance
+from config.logging_config import log_performance, logger
 
 class WeatherTool:
     """天气工具类 - 心知天气"""
@@ -17,22 +17,22 @@ class WeatherTool:
     @log_performance("weather.get_weather")
     def get_weather(self, city: str) -> dict:
         """获取城市当前天气"""
-        # 如果没有配置API密钥，返回模拟数据
-        if not self.api_key or self.api_key == "your_seniverse_api_key_here":
-            return self._generate_mock_weather(city)
-        
         try:
-            url = f"{self.base_url}/now.json"
+            url = f"{self.base_url}/weather/now.json"
             params = {
                 "key": self.api_key,
                 "location": city,
                 "language": "zh-Hans",
                 "unit": "c"
             }
+            logger.info(f"调用天气API - URL: {url}, 参数: {params}")
             response = requests.get(url, params=params)
+            logger.info(f"天气API响应状态码: {response.status_code}")
             data = response.json()
+            logger.info(f"天气API响应数据: {data}")
             
-            if data.get("code") == "200":
+            # 检查是否有results字段
+            if "results" in data and len(data["results"]) > 0:
                 weather_data = data["results"][0]
                 return {
                     "city": weather_data["location"]["name"],
@@ -45,19 +45,15 @@ class WeatherTool:
                     "update_time": weather_data["last_update"]
                 }
             else:
-                return self._generate_mock_weather(city)
+                raise ValueError(f"天气API返回错误: {data.get('status', '未知错误')}")
         except Exception as e:
-            print(f"天气API调用失败: {e}")
-            return self._generate_mock_weather(city)
+            raise RuntimeError(f"获取天气失败: {str(e)}")
     
     @log_performance("weather.get_forecast")
     def get_forecast(self, city: str, days: int = 3) -> dict:
         """获取城市天气预报"""
-        if not self.api_key or self.api_key == "your_seniverse_api_key_here":
-            return self._generate_mock_forecast(city, days)
-        
         try:
-            url = f"{self.base_url}/daily.json"
+            url = f"{self.base_url}/weather/daily.json"
             params = {
                 "key": self.api_key,
                 "location": city,
@@ -69,7 +65,8 @@ class WeatherTool:
             response = requests.get(url, params=params)
             data = response.json()
             
-            if data.get("code") == "200":
+            # 检查是否有results字段
+            if "results" in data and len(data["results"]) > 0:
                 results = data["results"][0]
                 forecast = []
                 for day in results["daily"]:
@@ -86,47 +83,7 @@ class WeatherTool:
                     "update_time": results["last_update"]
                 }
             else:
-                return self._generate_mock_forecast(city, days)
+                raise ValueError(f"天气API返回错误: {data.get('status', '未知错误')}")
         except Exception as e:
-            print(f"天气预报API调用失败: {e}")
-            return self._generate_mock_forecast(city, days)
+            raise RuntimeError(f"获取天气预报失败: {str(e)}")
     
-    def _generate_mock_weather(self, city: str) -> dict:
-        """生成模拟天气数据"""
-        import random
-        descriptions = ["晴", "多云", "阴", "小雨", "中雨", "大雨", "晴转多云"]
-        return {
-            "city": city,
-            "temperature": random.randint(15, 35),
-            "description": random.choice(descriptions),
-            "humidity": random.randint(40, 80),
-            "wind_speed": random.randint(1, 10),
-            "wind_direction": random.choice(["北风", "南风", "东风", "西风"]),
-            "icon": "01",
-            "update_time": "2024-01-01T12:00:00+08:00"
-        }
-    
-    def _generate_mock_forecast(self, city: str, days: int) -> dict:
-        """生成模拟天气预报数据"""
-        import random
-        from datetime import datetime, timedelta
-        
-        descriptions = ["晴", "多云", "阴", "小雨"]
-        forecast = []
-        today = datetime.now()
-        
-        for i in range(days):
-            date = (today + timedelta(days=i)).strftime("%Y-%m-%d")
-            forecast.append({
-                "date": date,
-                "high": random.randint(18, 35),
-                "low": random.randint(5, 20),
-                "description": random.choice(descriptions),
-                "icon": str(random.randint(1, 4))
-            })
-        
-        return {
-            "city": city,
-            "forecast": forecast,
-            "update_time": datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        }
