@@ -166,7 +166,7 @@ async def execute_plan_generation(user_id: str, user_input: str, websocket: WebS
         }, websocket)
         await asyncio.sleep(0.5)
         
-        parsed_input = parser.parse({"input": user_input})
+        parsed_input = parser.parse(user_input)
         logger.debug(f"[WebSocket] 用户输入解析完成 - 结果: {parsed_input}")
         
         # Step 2: 检索用户偏好
