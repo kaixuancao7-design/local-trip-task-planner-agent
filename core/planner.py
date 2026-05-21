@@ -7,6 +7,7 @@ import json
 import uuid
 from config.settings import settings
 from tools.map_tool import MapTool
+from config.logging_config import log_performance
 
 class PlanningAgent:
     """规划Agent"""
@@ -23,6 +24,7 @@ class PlanningAgent:
             self._llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
         return self._llm
     
+    @log_performance("planning.generate_plan")
     def generate_plan(self, parsed_input: dict, user_preferences: dict) -> dict:
         """生成活动计划"""
         prompt = PromptTemplate(

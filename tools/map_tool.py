@@ -5,6 +5,7 @@
 """
 import requests
 from config.settings import settings
+from config.logging_config import log_performance
 
 class MapTool:
     """地图工具类 - 高德地图"""
@@ -13,6 +14,7 @@ class MapTool:
         self.api_key = settings.map_api_key
         self.base_url = settings.map_api_url
     
+    @log_performance("map.get_route")
     def get_route(self, origin: str, destination: str, city: str = "") -> dict:
         """获取驾车路线信息
         
@@ -56,6 +58,7 @@ class MapTool:
             print(f"高德地图API调用失败: {e}")
             return self._generate_mock_route(origin, destination)
     
+    @log_performance("map.search_place")
     def search_place(self, keyword: str, city: str = "") -> list:
         """搜索地点（POI搜索）
         
@@ -101,6 +104,7 @@ class MapTool:
             print(f"高德地图POI搜索失败: {e}")
             return self._generate_mock_places(keyword)
     
+    @log_performance("map.geocode")
     def geocode(self, address: str, city: str = "") -> dict:
         """地址转经纬度（地理编码）
         

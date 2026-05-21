@@ -5,6 +5,7 @@
 """
 import requests
 from config.settings import settings
+from config.logging_config import log_performance
 
 class WeatherTool:
     """天气工具类 - 心知天气"""
@@ -13,6 +14,7 @@ class WeatherTool:
         self.api_key = settings.weather_api_key
         self.base_url = settings.weather_api_url
     
+    @log_performance("weather.get_weather")
     def get_weather(self, city: str) -> dict:
         """获取城市当前天气"""
         # 如果没有配置API密钥，返回模拟数据
@@ -48,6 +50,7 @@ class WeatherTool:
             print(f"天气API调用失败: {e}")
             return self._generate_mock_weather(city)
     
+    @log_performance("weather.get_forecast")
     def get_forecast(self, city: str, days: int = 3) -> dict:
         """获取城市天气预报"""
         if not self.api_key or self.api_key == "your_seniverse_api_key_here":

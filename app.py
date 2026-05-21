@@ -9,6 +9,7 @@ import uvicorn
 from api.v1.router import api_router
 from config.settings import Settings
 from config.logging_config import logger
+from core.middleware import register_middlewares
 
 settings = Settings()
 
@@ -35,6 +36,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册全局中间件（包括异常处理）
+register_middlewares(app)
 
 # 注册API路由
 app.include_router(api_router, prefix="/api/v1")
