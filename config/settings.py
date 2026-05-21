@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     port: int = 8000
     
     # 大模型配置
-    llm_model: str = "qwen2.5:7b"
+    llm_model: str = "qwen3.5:9b"
     llm_temperature: float = 0.7
     
     # ChromaDB配置
