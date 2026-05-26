@@ -4,7 +4,10 @@
 - LLM驱动的需求解析和场景识别
 - ReAct工具调用闭环
 - 多方案择优和反思机制
+- 计划持久化存储
 """
+import os
+from datetime import datetime
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 import json
@@ -30,6 +33,9 @@ class PlanningAgent:
         self.queue_tool = QueueCheckTool()
         self._plans = {}
         self._conversation_history = {}
+        
+        # 启动时加载已保存的计划
+        self._load_all_plans()
         
         # 场景类型映射
         self.scene_mapping = {
@@ -179,10 +185,33 @@ class PlanningAgent:
     
     @property
     def llm(self):
-        """懒加载LLM模型"""
+        """懒加载LLM模型 - 支持DeepSeek和Ollama"""
         if self._llm is None:
-            from langchain_ollama import OllamaLLM
-            self._llm = OllamaLLM(model=settings.llm_model, temperature=settings.llm_temperature)
+            provider = settings.llm_provider.lower()
+            
+            if provider == "deepseek":
+                # 使用DeepSeek API
+                from langchain_openai import ChatOpenAI
+                self._llm = ChatOpenAI(
+                    model=settings.llm_model,
+                    temperature=settings.llm_temperature,
+                    max_tokens=settings.llm_max_tokens,
+                    timeout=settings.llm_timeout,
+                    api_key=settings.deepseek_api_key,
+                    base_url=settings.deepseek_api_base
+                )
+                logger.info(f"[PlanningAgent] 已加载DeepSeek模型: {settings.llm_model}")
+            else:
+                # 默认使用Ollama
+                from langchain_ollama import OllamaLLM
+                self._llm = OllamaLLM(
+                    model=settings.llm_model, 
+                    temperature=settings.llm_temperature,
+                    timeout=settings.llm_timeout,
+                    max_tokens=settings.llm_max_tokens
+                )
+                logger.info(f"[PlanningAgent] 已加载Ollama模型: {settings.llm_model}")
+        
         return self._llm
     
     def _parse_scene_constraints_llm(self, user_input: str, user_preferences: dict = None, 
@@ -217,9 +246,12 @@ class PlanningAgent:
                 "user_preferences": json.dumps(user_preferences, ensure_ascii=False)
             })
             
-            logger.debug(f"[PlanningAgent] LLM需求解析结果: {result[:200]}...")
+            # 兼容Ollama（返回字符串）和ChatOpenAI（返回AIMessage）
+            content = result.content if hasattr(result, 'content') else str(result)
             
-            parsed = json.loads(result)
+            logger.debug(f"[PlanningAgent] LLM需求解析结果: {content[:200]}...")
+            
+            parsed = json.loads(content)
             
             # 如果用户指定了场景类型，优先使用指定的场景
             if scene_type:
@@ -264,12 +296,13 @@ class PlanningAgent:
             logger.error(f"[PlanningAgent] LLM解析异常: {e}，使用规则解析")
             return self._parse_scene_constraints_rules(user_input, user_preferences, scene_type)
     
-    def _parse_scene_constraints_rules(self, user_input: str, user_preferences: dict = None) -> dict:
+    def _parse_scene_constraints_rules(self, user_input: str, user_preferences: dict = None, 
+                                     scene_type: str = None) -> dict:
         """基于规则的需求解析（降级方案）"""
         logger.info(f"[PlanningAgent] 使用规则解析需求 - 输入: {user_input}")
         
-        scene_info = self._identify_scene_rules(user_input)
-        constraints = self._extract_constraints_rules(user_input, scene_info)
+        scene_info = self._identify_scene_rules(user_input, scene_type)
+        constraints = self._extract_constraints(user_input, scene_info)
         
         return {
             "scene_info": scene_info,
@@ -652,9 +685,12 @@ class PlanningAgent:
                 "available_tools": json.dumps(available_tools, ensure_ascii=False)
             })
             
-            logger.debug(f"[LLM Tool Decision] LLM输出: {result[:200]}...")
+            # 兼容Ollama（返回字符串）和ChatOpenAI（返回AIMessage）
+            content = result.content if hasattr(result, 'content') else str(result)
             
-            parsed = json.loads(result)
+            logger.debug(f"[LLM Tool Decision] LLM输出: {content[:200]}...")
+            
+            parsed = json.loads(content)
             tool_calls = parsed.get("tool_calls", [])
             thought = parsed.get("thought", "")
             
@@ -721,9 +757,12 @@ class PlanningAgent:
                 "observation": observation_str
             })
             
-            logger.debug(f"[LLM Planning] LLM输出: {result[:200]}...")
+            # 兼容Ollama（返回字符串）和ChatOpenAI（返回AIMessage）
+            content = result.content if hasattr(result, 'content') else str(result)
             
-            plan = json.loads(result)
+            logger.debug(f"[LLM Planning] LLM输出: {content[:200]}...")
+            
+            plan = json.loads(content)
             plan["planning_method"] = "llm"
             
             logger.info("[LLM Planning] LLM规划成功")
@@ -751,7 +790,10 @@ class PlanningAgent:
                 "constraints": constraints_str
             })
             
-            reflection = json.loads(result)
+            # 兼容Ollama（返回字符串）和ChatOpenAI（返回AIMessage）
+            content = result.content if hasattr(result, 'content') else str(result)
+            
+            reflection = json.loads(content)
             logger.info(f"[Reflection] 反思完成 - 有效: {reflection.get('is_valid')}")
             
             return reflection
@@ -1247,19 +1289,82 @@ class PlanningAgent:
         return True, "验证通过"
     
     def save_plan(self, plan: dict) -> bool:
-        """保存计划"""
+        """保存计划（内存 + 文件）"""
         if plan.get("plan_id"):
+            if "created_at" not in plan:
+                plan["created_at"] = datetime.now().isoformat()
+            plan["updated_at"] = datetime.now().isoformat()
+            
             self._plans[plan["plan_id"]] = plan
+            self._save_plan_to_file(plan)
+            
             logger.info(f"[PlanningAgent] 计划已保存 - plan_id: {plan['plan_id']}")
             return True
         logger.warning("[PlanningAgent] 保存计划失败 - plan_id为空")
         return False
     
+    def _ensure_data_dir(self):
+        """确保数据目录存在"""
+        data_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'plans')
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+    
+    def _save_plan_to_file(self, plan: dict) -> bool:
+        """将计划保存到JSON文件"""
+        try:
+            data_dir = self._ensure_data_dir()
+            plan_id = plan["plan_id"]
+            file_path = os.path.join(data_dir, f"{plan_id}.json")
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(plan, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"[PlanningAgent] 计划已保存到文件 - plan_id: {plan_id}, 文件: {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"[PlanningAgent] 保存计划到文件失败 - {str(e)}")
+            return False
+    
+    def _load_plan_from_file(self, plan_id: str) -> dict:
+        """从文件加载计划"""
+        try:
+            data_dir = self._ensure_data_dir()
+            file_path = os.path.join(data_dir, f"{plan_id}.json")
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    plan = json.load(f)
+                logger.info(f"[PlanningAgent] 从文件加载计划 - plan_id: {plan_id}")
+                return plan
+            return {}
+        except Exception as e:
+            logger.error(f"[PlanningAgent] 从文件加载计划失败 - {str(e)}")
+            return {}
+    
+    def _load_all_plans(self):
+        """启动时加载所有计划"""
+        try:
+            data_dir = self._ensure_data_dir()
+            for filename in os.listdir(data_dir):
+                if filename.endswith('.json'):
+                    plan_id = filename[:-5]
+                    plan = self._load_plan_from_file(plan_id)
+                    if plan:
+                        self._plans[plan_id] = plan
+            logger.info(f"[PlanningAgent] 已从文件加载 {len(self._plans)} 个计划")
+        except Exception as e:
+            logger.error(f"[PlanningAgent] 加载计划失败 - {str(e)}")
+    
     def get_plan(self, plan_id: str) -> dict:
-        """根据计划ID获取计划"""
+        """根据计划ID获取计划（优先内存，其次文件）"""
         plan = self._plans.get(plan_id)
         if plan:
             logger.info(f"[PlanningAgent] 获取计划成功 - plan_id: {plan_id}")
-        else:
-            logger.warning(f"[PlanningAgent] 获取计划失败 - plan_id: {plan_id} 不存在")
-        return plan or {}
+            return plan
+        
+        plan = self._load_plan_from_file(plan_id)
+        if plan:
+            self._plans[plan_id] = plan
+            return plan
+        
+        logger.warning(f"[PlanningAgent] 获取计划失败 - plan_id: {plan_id} 不存在")
+        return {}

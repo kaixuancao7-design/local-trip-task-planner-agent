@@ -16,8 +16,17 @@ class Settings(BaseSettings):
     port: int = 8000
     
     # 大模型配置
-    llm_model: str = "qwen3.5:9b"
+    # llm_model: str = "qwen3.5:9b"
+    llm_provider: str = "deepseek"  # ollama / deepseek
+    llm_model: str = "deepseek-v4-pro"  # deepseek-chat / deepseek-r1 / deepseek-chat-lite
     llm_temperature: float = 0.7
+    llm_timeout: int = 30  # LLM调用超时时间（秒）
+    llm_max_tokens: int = 2048  # 最大token数
+    llm_max_retries: int = 2  # 最大重试次数
+    
+    # DeepSeek API配置
+    deepseek_api_key: str = "your_deepseek_api_key"
+    deepseek_api_base: str = "https://api.deepseek.com/v1"
     
     # ChromaDB配置
     chroma_db_path: str = "./data/chroma_db"

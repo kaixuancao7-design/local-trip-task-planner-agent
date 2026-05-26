@@ -159,7 +159,15 @@ class BookingTool:
             self.bookings[booking_ref] = booking
             logger.info(f"[BookingTool] 餐厅预订成功 - booking_ref: {booking_ref}")
             
-            return booking
+            return {
+                "success": True,
+                "booking_ref": booking_ref,
+                "venue_id": venue_id,
+                "venue_type": "restaurant",
+                "date": date,
+                "time_slot": time_slot,
+                "guests": guests
+            }
             
         except Exception as e:
             logger.error(f"创建餐厅预订失败: {str(e)}")

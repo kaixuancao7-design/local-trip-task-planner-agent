@@ -19,34 +19,84 @@ class ActivitySearchTool:
         self.base_url = settings.map_api_url
         self.map_tool = MapTool()
         
-        # 活动类型映射（高德POI分类）
+        # 活动类型映射（高德POI分类）- 确保所有类型都有对应的POI编码
         self.activity_types = {
-            "亲子": ["儿童乐园", "主题乐园", "动物园", "植物园", "科技馆", "博物馆"],
-            "好友聚会": ["展览馆", "美术馆", "咖啡馆", "步行街", "公园", "特色街区"],
-            "情侣约会": ["公园", "咖啡馆", "电影院", "美术馆", "餐厅", "夜景"],
-            "个人休闲": ["图书馆", "书店", "咖啡馆", "公园", "体育馆", "健身房"]
+            "亲子": ["儿童乐园", "动物园", "植物园", "科技馆", "博物馆", "游乐场", "水族馆", "公园"],
+            "好友聚会": ["展览馆", "美术馆", "咖啡馆", "公园", "特色街区", "酒吧", "茶馆", "KTV", "电影院", "游戏厅"],
+            "情侣约会": ["公园", "咖啡馆", "电影院", "美术馆", "餐厅", "音乐厅", "剧院", "观景点", "城市广场"],
+            "个人休闲": ["图书馆", "书店", "咖啡馆", "公园", "体育馆", "健身房", "游泳馆", "茶馆", "文化宫"]
         }
         
-        # POI类型编码（高德地图）
+        # POI类型编码（高德地图）- 根据官方文档 V1.06_20230208 更新
+        # 编码规则: 80xxx=体育休闲服务, 14xxxx=科教文化服务, 11xxxx=风景名胜, 50xxx=餐饮服务
         self.poi_typecodes = {
-            "儿童乐园": "150500",
-            "主题乐园": "150501",
-            "动物园": "150502",
-            "植物园": "150503",
-            "科技馆": "141100",
-            "博物馆": "141200",
-            "展览馆": "141300",
-            "美术馆": "141400",
-            "咖啡馆": "150201",
-            "步行街": "141201",
-            "公园": "150300",
-            "特色街区": "150700",
-            "电影院": "150203",
-            "餐厅": "150100",
-            "图书馆": "141500",
-            "书店": "150205",
-            "体育馆": "150400",
-            "健身房": "150403"
+            # 体育休闲服务 (80xxx)
+            "游乐场": "80501",
+            "儿童乐园": "80501",  # 高德POI中儿童乐园和游乐场同属一个大分类
+            "游戏厅": "80305",
+            "棋牌室": "80306",
+            "电影院": "80601",
+            "音乐厅": "80602",
+            "剧院": "80603",
+            "KTV": "80302",
+            "酒吧": "80304",
+            "迪厅": "80303",
+            "夜总会": "80301",
+            "体育馆": "80100",
+            "综合体育馆": "80101",
+            "游泳馆": "80110",
+            "健身中心": "80111",
+            "健身房": "80111",  # 高德POI中健身中心和健身房同属一个分类
+            "台球厅": "80113",
+            "保龄球馆": "80102",
+            "网球场": "80103",
+            "篮球场": "80104",
+            "足球场": "80105",
+            "羽毛球馆": "80118",
+            "乒乓球馆": "80112",
+            "户外健身": "80108",
+            "瑜伽馆": "80108",  # 高德POI中瑜伽馆归类到户外健身大类
+            
+            # 科教文化服务 (14xxxx)
+            "博物馆": "140100",
+            "展览馆": "140200",
+            "会展中心": "140300",
+            "美术馆": "140400",
+            "图书馆": "140500",
+            "科技馆": "140600",
+            "天文馆": "140700",
+            "文化宫": "140800",
+            "档案馆": "140900",
+            "学校": "141200",
+            "高等院校": "141201",
+            "书店": "140604",  # 书店使用独立编码
+            
+            # 风景名胜 (11xxxx)
+            "公园": "110101",
+            "动物园": "110102",
+            "植物园": "110103",
+            "水族馆": "110104",
+            "城市广场": "110105",
+            "世界遗产": "110201",
+            "国家级景点": "110202",
+            "纪念馆": "110204",
+            "寺庙道观": "110205",
+            "教堂": "110206",
+            "回教寺": "110207",
+            "海滩": "110208",
+            "观景点": "110209",
+            
+            # 休闲娱乐 (805xx)
+            "咖啡馆": "80500",
+            "茶馆": "80502",  # 茶馆使用独立编码
+            
+            # 餐饮服务 (50xxx)
+            "餐厅": "50100",
+            
+            # 通用分类
+            "步行街": "110106",  # 步行街使用独立编码
+            "特色街区": "110106",  # 特色街区归类到步行街
+            "文创园": "110101"  # 文创园归类到公园
         }
     
     @log_performance("activity.search")
@@ -99,6 +149,11 @@ class ActivitySearchTool:
             
             # 根据排序方式排序
             sorted_results = self._sort_results(unique_results, sort_by)
+            
+            # 如果搜索结果为空，使用模拟数据
+            if len(sorted_results) == 0:
+                logger.info("[ActivitySearchTool] 未找到活动，使用模拟数据")
+                return self._get_mock_activities(scene_type, city, limit, user_location, sort_by)
             
             logger.info(f"[ActivitySearchTool] 搜索完成 - 找到 {len(sorted_results)} 个活动")
             return sorted_results[:limit]
@@ -194,8 +249,9 @@ class ActivitySearchTool:
             "key": self.api_key,
             "types": typecode,
             "offset": 0,
-            "limit": limit,
-            "extensions": "all"
+            "limit": min(limit, 50),  # 扩大默认限制，最多50条
+            "extensions": "all",
+            "citylimit": "true"  # 限制在指定城市内搜索
         }
         
         # 如果有用户位置，使用周边搜索API
@@ -283,52 +339,52 @@ class ActivitySearchTool:
         mock_data = {
             "亲子": [
                 {"name": f"{city}儿童乐园", "location": "118.783799,32.060255", "address": f"{city}市鼓楼区亲子路1号", 
-                 "type": "儿童乐园", "typecode": "150500", "distance": 500, "rating": "4.8", "cost": "60-100元", 
+                 "type": "儿童乐园", "typecode": "80501", "distance": 500, "rating": "4.8", "cost": "60-100元", 
                  "business_time": "09:00-18:00", "tel": "025-12345678", "id": "mock-qz-001"},
                 {"name": f"{city}动物园", "location": "118.778934,32.058976", "address": f"{city}市玄武区动物园路88号", 
-                 "type": "动物园", "typecode": "150502", "distance": 1200, "rating": "4.6", "cost": "40-60元", 
+                 "type": "动物园", "typecode": "110102", "distance": 1200, "rating": "4.6", "cost": "40-60元", 
                  "business_time": "08:30-17:30", "tel": "025-87654321", "id": "mock-qz-002"},
                 {"name": f"{city}科技馆", "location": "118.791234,32.065432", "address": f"{city}市建邺区科技大道100号", 
-                 "type": "科技馆", "typecode": "141100", "distance": 1800, "rating": "4.7", "cost": "免费", 
+                 "type": "科技馆", "typecode": "140600", "distance": 1800, "rating": "4.7", "cost": "免费", 
                  "business_time": "09:00-16:30", "tel": "025-11223344", "id": "mock-qz-003"},
                 {"name": f"{city}植物园", "location": "118.765432,32.071234", "address": f"{city}市雨花台区植物园路66号", 
-                 "type": "植物园", "typecode": "150503", "distance": 2500, "rating": "4.5", "cost": "30元", 
+                 "type": "植物园", "typecode": "110103", "distance": 2500, "rating": "4.5", "cost": "30元", 
                  "business_time": "08:00-18:00", "tel": "025-55667788", "id": "mock-qz-004"}
             ],
             "好友聚会": [
                 {"name": f"{city}艺术展览馆", "location": "118.785678,32.056789", "address": f"{city}市秦淮区艺术街1号", 
-                 "type": "展览馆", "typecode": "141300", "distance": 600, "rating": "4.9", "cost": "50元", 
+                 "type": "展览馆", "typecode": "140200", "distance": 600, "rating": "4.9", "cost": "50元", 
                  "business_time": "10:00-18:00", "tel": "025-22334455", "id": "mock-hy-001"},
                 {"name": f"{city}老门东历史街区", "location": "118.798765,32.045678", "address": f"{city}市秦淮区老门东", 
-                 "type": "特色街区", "typecode": "150700", "distance": 900, "rating": "4.8", "cost": "免费", 
+                 "type": "特色街区", "typecode": "110105", "distance": 900, "rating": "4.8", "cost": "免费", 
                  "business_time": "全天", "tel": "", "id": "mock-hy-002"},
                 {"name": f"{city}美术馆", "location": "118.772345,32.053456", "address": f"{city}市鼓楼区美术大道8号", 
-                 "type": "美术馆", "typecode": "141400", "distance": 1100, "rating": "4.7", "cost": "免费", 
+                 "type": "美术馆", "typecode": "140400", "distance": 1100, "rating": "4.7", "cost": "免费", 
                  "business_time": "09:00-17:00", "tel": "025-66778899", "id": "mock-hy-003"},
                 {"name": f"{city}中央公园", "location": "118.789012,32.067890", "address": f"{city}市玄武区公园路1号", 
-                 "type": "公园", "typecode": "150300", "distance": 400, "rating": "4.6", "cost": "免费", 
+                 "type": "公园", "typecode": "110101", "distance": 400, "rating": "4.6", "cost": "免费", 
                  "business_time": "全天", "tel": "", "id": "mock-hy-004"}
             ],
             "情侣约会": [
                 {"name": f"{city}浪漫咖啡馆", "location": "118.782345,32.059876", "address": f"{city}市鼓楼区情侣巷1314号", 
-                 "type": "咖啡馆", "typecode": "150201", "distance": 300, "rating": "4.8", "cost": "50-100元", 
+                 "type": "咖啡馆", "typecode": "80500", "distance": 300, "rating": "4.8", "cost": "50-100元", 
                  "business_time": "09:00-22:00", "tel": "025-77889900", "id": "mock-ql-001"},
                 {"name": f"{city}滨江公园", "location": "118.756789,32.062345", "address": f"{city}市建邺区滨江大道", 
-                 "type": "公园", "typecode": "150300", "distance": 2000, "rating": "4.7", "cost": "免费", 
+                 "type": "公园", "typecode": "110101", "distance": 2000, "rating": "4.7", "cost": "免费", 
                  "business_time": "全天", "tel": "", "id": "mock-ql-002"},
                 {"name": f"{city}艺术电影院", "location": "118.776543,32.055678", "address": f"{city}市玄武区电影街88号", 
-                 "type": "电影院", "typecode": "150203", "distance": 700, "rating": "4.6", "cost": "30-80元", 
+                 "type": "电影院", "typecode": "80601", "distance": 700, "rating": "4.6", "cost": "30-80元", 
                  "business_time": "10:00-23:00", "tel": "025-33445566", "id": "mock-ql-003"}
             ],
             "个人休闲": [
                 {"name": f"{city}市图书馆", "location": "118.787654,32.061234", "address": f"{city}市鼓楼区图书路1号", 
-                 "type": "图书馆", "typecode": "141500", "distance": 500, "rating": "4.5", "cost": "免费", 
+                 "type": "图书馆", "typecode": "140500", "distance": 500, "rating": "4.5", "cost": "免费", 
                  "business_time": "09:00-21:00", "tel": "025-44556677", "id": "mock-gr-001"},
                 {"name": f"{city}阅读书店", "location": "118.792345,32.058765", "address": f"{city}市秦淮区书店街23号", 
-                 "type": "书店", "typecode": "150205", "distance": 800, "rating": "4.7", "cost": "免费", 
+                 "type": "书店", "typecode": "140500", "distance": 800, "rating": "4.7", "cost": "免费", 
                  "business_time": "10:00-22:00", "tel": "025-55667788", "id": "mock-gr-002"},
                 {"name": f"{city}全民健身中心", "location": "118.767890,32.066789", "address": f"{city}市雨花台区健身路66号", 
-                 "type": "体育馆", "typecode": "150400", "distance": 1500, "rating": "4.4", "cost": "20-50元", 
+                 "type": "体育馆", "typecode": "80100", "distance": 1500, "rating": "4.4", "cost": "20-50元", 
                  "business_time": "08:00-22:00", "tel": "025-88990011", "id": "mock-gr-003"}
             ]
         }
@@ -357,16 +413,16 @@ class ActivitySearchTool:
         """按类别返回模拟数据"""
         mock_category_data = {
             "儿童乐园": [{"name": f"{city}欢乐儿童乐园", "location": "118.783799,32.060255", "address": f"{city}市儿童路1号", 
-                        "type": "儿童乐园", "typecode": "150500", "distance": 500, "rating": "4.8", "cost": "80元", 
+                        "type": "儿童乐园", "typecode": "80501", "distance": 500, "rating": "4.8", "cost": "80元", 
                         "business_time": "09:00-18:00", "id": "mock-cat-001"}],
             "展览馆": [{"name": f"{city}当代艺术展览馆", "location": "118.785678,32.058976", "address": f"{city}市艺术大道8号", 
-                      "type": "展览馆", "typecode": "141300", "distance": 800, "rating": "4.9", "cost": "60元", 
+                      "type": "展览馆", "typecode": "140200", "distance": 800, "rating": "4.9", "cost": "60元", 
                       "business_time": "10:00-18:00", "id": "mock-cat-002"}],
             "公园": [{"name": f"{city}市民公园", "location": "118.778934,32.062345", "address": f"{city}市公园路1号", 
-                    "type": "公园", "typecode": "150300", "distance": 300, "rating": "4.6", "cost": "免费", 
+                    "type": "公园", "typecode": "110101", "distance": 300, "rating": "4.6", "cost": "免费", 
                     "business_time": "全天", "id": "mock-cat-003"}],
             "咖啡馆": [{"name": f"{city}时光咖啡馆", "location": "118.791234,32.056789", "address": f"{city}市咖啡巷88号", 
-                      "type": "咖啡馆", "typecode": "150201", "distance": 600, "rating": "4.7", "cost": "40-60元", 
+                      "type": "咖啡馆", "typecode": "80500", "distance": 600, "rating": "4.7", "cost": "40-60元", 
                       "business_time": "08:00-23:00", "id": "mock-cat-004"}]
         }
         
@@ -379,7 +435,7 @@ class ActivitySearchTool:
             "address": "南京市鼓楼区示例路1号",
             "location": "118.783799,32.060255",
             "type": "儿童乐园",
-            "typecode": "150500",
+            "typecode": "80501",
             "tel": "025-12345678",
             "business_time": "09:00-18:00",
             "rating": "4.8",
