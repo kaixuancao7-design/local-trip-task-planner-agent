@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     default_planning_duration: int = 3600
     max_plan_activities: int = 10
     
+    # 场景化配置
+    default_distance_limit: float = 3.0  # 默认3km范围
+    max_waiting_time: int = 20  # 最大排队时间（分钟）
+    preferred_rating: float = 4.5  # 最低评分要求
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -1,9 +1,10 @@
 """规划模块API端点
 
 提供活动计划的生成和确认功能。
+支持场景化计划生成：亲子、好友聚会、情侣约会、个人休闲
 """
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from models.schemas import UserRequest, ConfirmRequest, PlanResponse, ExecutionResponse
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
+from models.schemas import UserRequest, ConfirmRequest, PlanResponse, ExecutionResponse, ScenePlanRequest
 from core.parser import InputParser
 from core.planner import PlanningAgent
 from core.executor import ExecutionAgent
@@ -93,6 +94,90 @@ async def execute_plan(request: ConfirmRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/generate-scene")
+async def generate_scene_plan(request: ScenePlanRequest):
+    """生成场景化活动计划
+    
+    根据用户输入和场景类型，生成个性化的周末短时活动计划。
+    支持的场景类型：family(亲子)、friends(好友聚会)、couple(情侣约会)、solo(个人休闲)
+    
+    Args:
+        user_id: 用户唯一标识
+        input: 用户自然语言输入
+        scene_type: 场景类型（可选，自动识别或指定）
+        user_location: 用户位置（经纬度，用于计算通勤时间）
+    
+    Returns:
+        包含计划、候选方案、场景信息和约束条件的完整响应
+    """
+    try:
+        logger.info(f"[ScenePlan] 开始生成场景化计划 - user_id: {request.user_id}, input: {request.input}, scene_type: {request.scene_type}")
+        
+        # 获取用户偏好
+        user_preferences = memory_manager.get_user_preferences(request.user_id)
+        
+        # 调用场景化规划
+        result = planner.generate_scene_plan(
+            user_input=request.input,
+            user_preferences=user_preferences,
+            scene_type=request.scene_type,
+            user_location=request.user_location or ""
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail="计划生成失败")
+        
+        plan = result["plan"]
+        scene_info = result["scene_info"]
+        constraints = result["constraints"]
+        candidates = result.get("candidates", [])
+        
+        # 更新用户偏好
+        memory_manager.update_user_preferences(request.user_id, {
+            "scene_type": scene_info["scene_type"],
+            "cuisine_preference": constraints.get("cuisine_preference", "")
+        })
+        
+        # 构建响应
+        response = {
+            "success": True,
+            "message": f"{scene_info['scene_name']}计划生成成功",
+            "plan": {
+                "plan_id": plan["plan_id"],
+                "title": plan["title"],
+                "score": plan["score"],
+                "score_details": plan["score_details"],
+                "duration": plan["duration"],
+                "total_distance": plan["total_distance"],
+                "cost_estimate": plan["cost_estimate"],
+                "steps": plan["steps"],
+                "schedule": plan.get("schedule", [])
+            },
+            "scene_info": scene_info,
+            "constraints": constraints,
+            "candidates": candidates
+        }
+        
+        logger.info(f"[ScenePlan] 场景化计划生成成功 - plan_id: {plan['plan_id']}, 场景: {scene_info['scene_name']}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"[ScenePlan] 生成场景化计划失败 - 错误: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/scene-types")
+async def get_scene_types():
+    """获取支持的场景类型列表"""
+    return {
+        "success": True,
+        "scene_types": [
+            {"type": "family", "name": "亲子", "description": "适合带孩子一起游玩"},
+            {"type": "friends", "name": "好友聚会", "description": "适合朋友聚餐、团建"},
+            {"type": "couple", "name": "情侣约会", "description": "适合情侣浪漫约会"},
+            {"type": "solo", "name": "个人休闲", "description": "适合独自放松休闲"}
+        ]
+    }
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

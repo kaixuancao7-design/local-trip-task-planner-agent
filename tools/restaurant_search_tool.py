@@ -166,8 +166,8 @@ class RestaurantSearchTool:
             "city": city,
             "key": self.api_key,
             "types": typecode,
-            "offset": limit,
-            "page": 1,
+            "offset": 0,
+            "limit": limit,
             "extensions": "all"
         }
         
